@@ -539,7 +539,11 @@ class DataFlowKernel(object):
         return count, depends
 
     def sanitize_and_wrap(self, task_id, args, kwargs):
-        """This function should be called only when all the futures we track have been resolved.
+        """This function should be called only when all Futures we track
+        have been resolved.
+
+        It will replace each such Future with the result of that Future
+        in the args and kwargs lists.
 
         If the user hid futures a level below, we will not catch
         it, and will (most likely) result in a type error.
@@ -551,7 +555,12 @@ class DataFlowKernel(object):
              kwargs (Dict) : Kwargs to app function
 
         Return:
-             partial function evaluated with all dependencies in  args, kwargs and kwargs['inputs'] evaluated.
+             new args, kwargs to be passed to app function instead
+             of the original args/kwargs lists; Future results will have
+             been resolved in these new parameters.
+
+             a list of dependency failures caused by exceptions in
+             dependency futures
 
         """
         dep_failures = []
