@@ -1,9 +1,15 @@
 import logging
-from parsl.data_provider.ftp import _ftp_stage_in_app
 from parsl.data_provider.globus import _get_globus_scheme
-from parsl.data_provider.http import _http_stage_in_app
+
+from parsl.data_provider.file_noop import NoOpFileStaging
+from parsl.data_provider.ftp import FTPSeparateTaskStaging
+from parsl.data_provider.http import HTTPSeparateTaskStaging
 
 logger = logging.getLogger(__name__)
+
+# these will be shared between all executors that do not explicitly
+# override, so should not contain executor-specific state
+defaultStaging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPSeparateTaskStaging()]
 
 
 class DataManager(object):
@@ -37,43 +43,24 @@ class DataManager(object):
                 future completing before executing, and the File contained in that future will be
                 used as input.
         """
-
         if parent_fut is None:
             raise ValueError("BENC: non-None parent_fut")
 
-        if file.scheme == 'ftp':
-            working_dir = self.dfk.executors[executor].working_dir
-            stage_in_app = _ftp_stage_in_app(self, executor=executor)
-            app_fut = stage_in_app(working_dir, outputs=[file], staging_inhibit_output=True)
-            return app_fut._outputs[0]
-        elif file.scheme == 'http' or file.scheme == 'https':
-            working_dir = self.dfk.executors[executor].working_dir
-            stage_in_app = _http_stage_in_app(self, executor=executor)
-            app_fut = stage_in_app(working_dir, outputs=[file], staging_inhibit_output=True)
-            return app_fut._outputs[0]
-        elif file.scheme == 'globus':
-            # what should happen here is...
-            # we should acquire the GlobusScheme object that goes with
-            # this executor (rather than _get_globus_endpoint)
-            # and then ask the scheme to provide the stage_in_app without
-            # invocations to that app needing any further globus specific
-            # parameters.
-            # The longer term path is then that http/ftp also become a
-            # Scheme, and we allow each one a chance to inspect the
-            # file to see if it can handle it (rather than the data manager
-            # having to know about staging)
-            # At that point, we wouldn't be looking up the GlobusScheme
-            # object explicitly - instead we'd be in possession of it just
-            # like the other schemes... and each scheme would know all the
-            # parameterisation it needs to.
-            # so the three real cases of this if/elif block should
-            # look pretty much identical
-            globus_scheme = _get_globus_scheme(self.dfk, executor)
-            stage_in_app = globus_scheme._globus_stage_in_app(executor=executor, dfk=self.dfk)
-            app_fut = stage_in_app(outputs=[file], staging_inhibit_output=True)
-            return app_fut._outputs[0]
+        executor_obj = self.dfk.executors[executor]
+        if hasattr(executor_obj, "storage_access") and executor_obj.storage_access is not None:
+            storage_access = executor_obj.storage_access
+
         else:
-            raise Exception('Staging in with unknown file scheme {} is not supported'.format(file.scheme))
+            storage_access = defaultStaging
+
+        for scheme in storage_access:
+            logger.debug("stage_in checking Staging provider {}".format(scheme))
+            if scheme.can_stage_in(file):
+                return scheme.stage_in(self, executor, file)
+
+        logger.debug("reached end of staging scheme list")
+        # if we reach here, we haven't found a suitable staging mechanism
+        raise ValueError("Executor {} cannot stage file {}".format(executor, repr(file)))
 
     def stage_out(self, file, executor, app_fu):
         """Transport the file from the local filesystem to the remote Globus endpoint.
@@ -95,5 +82,7 @@ class DataManager(object):
             stage_out_app = globus_scheme._globus_stage_out_app(executor=executor, dfk=self.dfk)
             return stage_out_app(app_fu, inputs=[file])
             # ^ depends on the app future (but *not* on all the app stageouts happening, else we'd be circular)
+        elif file.scheme == 'file':    # added in this patch because no is_remote check in DFK now
+            return None
         else:
             raise Exception('Staging out with unknown file scheme {} is not supported'.format(file.scheme))

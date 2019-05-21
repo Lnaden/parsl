@@ -465,9 +465,9 @@ class DataFlowKernel(object):
         return exec_fu
 
     def _add_input_deps(self, executor, args, kwargs):
-        """Look for inputs of the app that are remote files. Submit stage_in
-        apps for such files and replace the file objects in the inputs list with
-        corresponding DataFuture objects.
+        """Look for inputs of the app that are files. Give the data manager
+        the opportunity to replace a file with a data future for that file,
+        for example wrapping the result of a staging action.
 
         Args:
             - executor (str) : executor where the app is going to be launched
@@ -482,22 +482,34 @@ class DataFlowKernel(object):
         inputs = kwargs.get('inputs', [])
         for idx, f in enumerate(inputs):
             if isinstance(f, DataFuture):
-                inputs[idx] = self.data_manager.stage_in(f.file_obj, executor, f)
-            if isinstance(f, File) and f.is_remote():
-                inputs[idx] = self.data_manager.stage_in(f, executor, None)
+                fut = self.data_manager.stage_in(f.file_obj, executor, f)
+                if fut:
+                    inputs[idx] = fut
+            if isinstance(f, File):
+                fut = self.data_manager.stage_in(f, executor)
+                if fut:
+                    inputs[idx] = fut
 
         for kwarg, f in kwargs.items():
             if isinstance(f, DataFuture):
-                kwargs[kwarg] = self.data_manager.stage_in(f.file_obj, executor, f)
-            if isinstance(f, File) and f.is_remote():
-                kwargs[kwarg] = self.data_manager.stage_in(f, executor, None)
+                fut = self.data_manager.stage_in(f.file_obj, executor, f)
+                if fut:
+                    kwargs[kwarg] = fut
+            if isinstance(f, File):
+                fut = self.data_manager.stage_in(f, executor)
+                if fut:
+                    kwargs[kwarg] = fut
 
         newargs = list(args)
         for idx, f in enumerate(newargs):
             if isinstance(f, DataFuture):
-                newargs[idx] = self.data_manager.stage_in(f.file_obj, executor, f)
-            if isinstance(f, File) and f.is_remote():
-                newargs[idx] = self.data_manager.stage_in(f, executor, None)
+                fut = self.data_manager.stage_in(f.file_obj, executor, f)
+                if fut:
+                    newargs[idx] = fut
+            if isinstance(f, File):
+                fut = self.data_manager.stage_in(f, executor)
+                if fut:
+                    newargs[idx] = fut
 
         return tuple(newargs), kwargs
 
@@ -508,22 +520,19 @@ class DataFlowKernel(object):
         # race? because we add on stage-out decorations during submission rather than at
         # completion...
 
-        inhibit = self.check_staging_inhibited(kwargs)
-        outputs = kwargs.get('outputs', [])
-        app_fut._outputs = []
-        for f in outputs:
-            if isinstance(f, File) and f.is_remote() and not inhibit:
-                # with remote stageout, the DataFuture will be complete when
-                # the staging task is complete
-                stageout_fut = self.data_manager.stage_out(f, executor, app_fut)
-                app_fut._outputs.append(DataFuture(stageout_fut, f, tid=app_fut.tid))
-            else:
-                # with local stageout, the DataFuture will be complete when
-                # the core task future is complete
-                # with remote URLs, if staging is inhibited, the app future completing
-                # will signal that stage-out is complete - because that app *is* the
-                # stageout task
-                app_fut._outputs.append(DataFuture(app_fut, f, tid=app_fut.tid))
+        if not self.check_staging_inhibited(kwargs):
+            outputs = kwargs.get('outputs', [])
+            app_fut._outputs = []
+            for f in outputs:
+                if isinstance(f, File):
+                    # replace a File with a DataFuture - either completing when the stageout
+                    # future completes, or if no stage out future is returned, then when the
+                    # app itself completes.
+                    stageout_fut = self.data_manager.stage_out(f, executor, app_fut)
+                    if stageout_fut:
+                        app_fut._outputs.append(DataFuture(stageout_fut, f, tid=app_fut.tid))
+                    else:
+                        app_fut._outputs.append(DataFuture(app_fut, f, tid=app_fut.tid))
 
     def _gather_all_deps(self, args, kwargs):
         """Count the number of unresolved futures on which a task depends.
