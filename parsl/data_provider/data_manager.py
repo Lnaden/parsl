@@ -1,6 +1,7 @@
 import logging
 
-from parsl.data_provider.file_noop import NoOpFileStaging
+from parsl.data_provider.file_args import FileArgsStaging
+# from parsl.data_provider.file_noop import NoOpFileStaging
 from parsl.data_provider.ftp import FTPSeparateTaskStaging
 # from parsl.data_provider.http import HTTPSeparateTaskStaging
 from parsl.data_provider.http import HTTPInTaskStaging
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 # UNDO THIS: in this patch, this changes to http in-task staging for ease of my
 # testing, but it should default to HTTPSeparateTaskStaging to keep consistency
 # with earlier versions.
-defaultStaging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPInTaskStaging()]
+defaultStaging = [FileArgsStaging(), FTPSeparateTaskStaging(), HTTPInTaskStaging()]
 
 
 class DataManager(object):
