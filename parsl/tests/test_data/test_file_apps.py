@@ -73,6 +73,7 @@ def test_increment(depth=5):
 
 
 if __name__ == '__main__':
+    parsl.set_stream_logger()
     parsl.clear()
     parsl.load(config)
 
