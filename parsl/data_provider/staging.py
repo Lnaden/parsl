@@ -37,3 +37,9 @@ class Staging:
     # for this file, or return None to perform no substitution
     def stage_in(self, dm, executor, file):
         return None
+
+    # for a file to be staged in, give the provider the chance to
+    # replace (eg wrap with staging wrapper) the app function.
+    # if this returns None, no substitution happens
+    def replace_task(self, dm, executor, file, func):
+        return None

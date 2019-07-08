@@ -3,13 +3,18 @@ from parsl.data_provider.globus import _get_globus_scheme
 
 from parsl.data_provider.file_noop import NoOpFileStaging
 from parsl.data_provider.ftp import FTPSeparateTaskStaging
-from parsl.data_provider.http import HTTPSeparateTaskStaging
+# from parsl.data_provider.http import HTTPSeparateTaskStaging
+from parsl.data_provider.http import HTTPInTaskStaging
 
 logger = logging.getLogger(__name__)
 
 # these will be shared between all executors that do not explicitly
 # override, so should not contain executor-specific state
-defaultStaging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPSeparateTaskStaging()]
+
+# UNDO THIS: in this patch, this changes to http in-task staging for ease of my
+# testing, but it should default to HTTPSeparateTaskStaging to keep consistency
+# with earlier versions.
+defaultStaging = [NoOpFileStaging(), FTPSeparateTaskStaging(), HTTPInTaskStaging()]
 
 
 class DataManager(object):
@@ -29,6 +34,23 @@ class DataManager(object):
 
         self.dfk = dfk
         self.globus = None
+
+    def replace_task(self, file, func, executor):
+        """This will give staging providers the chance to wrap (or replace entirely!) the task function."""
+        executor_obj = self.dfk.executors[executor]
+        if hasattr(executor_obj, "storage_access") and executor_obj.storage_access is not None:
+            storage_access = executor_obj.storage_access
+        else:
+            storage_access = defaultStaging
+
+        for scheme in storage_access:
+            logger.debug("stage_in checking Staging provider {}".format(scheme))
+            if scheme.can_stage_in(file):
+                return scheme.replace_task(self, executor, file, func)
+
+        logger.debug("reached end of staging scheme list")
+        # if we reach here, we haven't found a suitable staging mechanism
+        raise ValueError("Executor {} cannot stage file {}".format(executor, repr(file)))
 
     def stage_in(self, file, executor, parent_fut):
         """Transport the file from the input source to the executor.

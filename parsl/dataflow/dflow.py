@@ -464,7 +464,7 @@ class DataFlowKernel(object):
         logger.info("Task {} launched on executor {}".format(task_id, executor.label))
         return exec_fu
 
-    def _add_input_deps(self, executor, args, kwargs):
+    def _add_input_deps(self, executor, args, kwargs, func):
         """Look for inputs of the app that are files. Give the data manager
         the opportunity to replace a file with a data future for that file,
         for example wrapping the result of a staging action.
@@ -477,7 +477,7 @@ class DataFlowKernel(object):
 
         # Return if the task is _*_stage_in
         if executor == 'data_manager':
-            return args, kwargs
+            return args, kwargs, func
 
         inputs = kwargs.get('inputs', [])
         for idx, f in enumerate(inputs):
@@ -489,6 +489,9 @@ class DataFlowKernel(object):
                 fut = self.data_manager.stage_in(f, executor)
                 if fut:
                     inputs[idx] = fut
+                newfunc = self.data_manager.replace_task(f, func, executor)
+                if newfunc:
+                    func = newfunc
 
         for kwarg, f in kwargs.items():
             if isinstance(f, DataFuture):
@@ -499,6 +502,9 @@ class DataFlowKernel(object):
                 fut = self.data_manager.stage_in(f, executor)
                 if fut:
                     kwargs[kwarg] = fut
+                newfunc = self.data_manager.replace_task(f, func, executor)
+                if newfunc:
+                    func = newfunc
 
         newargs = list(args)
         for idx, f in enumerate(newargs):
@@ -510,8 +516,11 @@ class DataFlowKernel(object):
                 fut = self.data_manager.stage_in(f, executor)
                 if fut:
                     newargs[idx] = fut
+                newfunc = self.data_manager.replace_task(f, func, executor)
+                if newfunc:
+                    func = newfunc
 
-        return tuple(newargs), kwargs
+        return tuple(newargs), kwargs, func
 
     def _add_output_deps(self, executor, args, kwargs, app_fut):
         logger.debug("Adding output dependencies")
@@ -686,8 +695,8 @@ class DataFlowKernel(object):
                            stdout=task_stdout,
                            stderr=task_stderr)
 
-        # Transform remote input files to data futures
-        args, kwargs = self._add_input_deps(executor, args, kwargs)
+        # Give staging mechanisms a change to act on inputs
+        args, kwargs, func = self._add_input_deps(executor, args, kwargs, func)
 
         # give output staging a chance to annotate. although there is
         # no app future at this point to depend on for results, if wanting
