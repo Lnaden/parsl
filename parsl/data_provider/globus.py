@@ -255,7 +255,10 @@ def _globus_stage_in(scheme, executor, outputs=[], staging_inhibit_output=True):
             file.path, dst_path)
 
 
-def _globus_stage_out(scheme, executor, inputs=[]):
+# takes app_fu as an input dependency, even though it doesn't
+# actually use it - so that this won't run until the dependency
+# is done.
+def _globus_stage_out(scheme, executor, app_fu, inputs=[]):
     globus_ep = scheme._get_globus_endpoint(executor)
     file = inputs[0]
     src_path = os.path.join(globus_ep['endpoint_path'], file.filename)

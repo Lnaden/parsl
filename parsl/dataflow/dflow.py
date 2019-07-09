@@ -334,20 +334,6 @@ class DataFlowKernel(object):
 
             if self.checkpoint_mode == 'task_exit':
                 self.checkpoint(tasks=[task_id])
-
-        # Submit _*_stage_out tasks for output data futures that have output files,
-        # but that are not already staging jobs, identified somehow
-
-        logger.debug("Submitting stage out jobs")
-        app_fu = self.tasks[task_id]['app_fu']
-
-        if app_fu.exception() is None and not self.check_staging_inhibited(self.tasks[task_id]['kwargs']):
-            for dfu in self.tasks[task_id]['app_fu'].outputs:
-                f = dfu.file_obj
-                logger.debug("Submitting stage out job for output file {}".format(f))
-                if isinstance(f, File) and f.is_remote():
-                    self.data_manager.stage_out(f, self.tasks[task_id]['executor'])
-
         return
 
     @staticmethod
@@ -508,6 +494,15 @@ class DataFlowKernel(object):
 
         return tuple(newargs), kwargs
 
+    def _add_output_deps(self, executor, args, kwargs, app_fu):
+        logger.debug("Adding output dependencies")
+
+        if not self.check_staging_inhibited(kwargs):
+            outputs = kwargs.get('outputs', [])
+            for f in outputs:
+                if isinstance(f, File) and f.is_remote():
+                    self.data_manager.stage_out(f, executor, app_fu)
+
     def _gather_all_deps(self, args, kwargs):
         """Count the number of unresolved futures on which a task depends.
 
@@ -654,8 +649,21 @@ class DataFlowKernel(object):
             raise ValueError("Task {} supplied invalid type for executors: {}".format(task_id, type(executors)))
         executor = random.choice(choices)
 
+        task_stdout = kwargs.get('stdout')
+        task_stderr = kwargs.get('stderr')
+        app_fu = AppFuture(tid=task_id,
+                           stdout=task_stdout,
+                           stderr=task_stderr)
+
         # Transform remote input files to data futures
         args, kwargs = self._add_input_deps(executor, args, kwargs)
+
+        # give output staging a chance to annotate. although there is
+        # no app future at this point to depend on for results, if wanting
+        # to submit a task. but maybe a proxy future would do for that,
+        # that we create now
+        self._add_output_deps(executor, args, kwargs, app_fu)
+
         label = kwargs.get('label')
         for kw in ['stdout', 'stderr']:
             if kw in kwargs:
@@ -701,18 +709,11 @@ class DataFlowKernel(object):
         dep_cnt, depends = self._gather_all_deps(args, kwargs)
         self.tasks[task_id]['depends'] = depends
 
-        # Extract stdout and stderr to pass to AppFuture:
-        task_stdout = kwargs.get('stdout')
-        task_stderr = kwargs.get('stderr')
-
         logger.info("Task {} submitted for App {}, waiting on tasks {}".format(task_id,
                                                                                task_def['func_name'],
                                                                                [fu.tid for fu in depends]))
 
         self.tasks[task_id]['task_launch_lock'] = threading.Lock()
-        app_fu = AppFuture(tid=task_id,
-                           stdout=task_stdout,
-                           stderr=task_stderr)
 
         self.tasks[task_id]['app_fu'] = app_fu
         app_fu.add_done_callback(partial(self.handle_app_update, task_id))
