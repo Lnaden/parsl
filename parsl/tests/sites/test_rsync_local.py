@@ -5,7 +5,7 @@ import pytest
 import parsl
 from parsl.app.app import App
 from parsl.data_provider.files import File
-from parsl.tests.configs.local_threads_rsync import config
+from parsl.tests.configs.local_threads_rsync_many import config
 
 
 @App('bash')
@@ -13,6 +13,7 @@ def cat(inputs=[], outputs=[], stdout=None, stderr=None):
     infiles = ' '.join([i.filepath for i in inputs])
     return """echo {i}
     cat {i} &> {o}
+    echo pwd = $(pwd)
     """.format(i=infiles, o=outputs[0])
 
 
@@ -73,7 +74,7 @@ def test_increment(depth=5):
 
 
 if __name__ == '__main__':
-    parsl.set_stream_logger()
+    # parsl.set_stream_logger()
     parsl.clear()
     parsl.load(config)
 
