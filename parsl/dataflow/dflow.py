@@ -522,12 +522,8 @@ class DataFlowKernel(object):
 
         return tuple(newargs), kwargs, func
 
-    def _add_output_deps(self, executor, args, kwargs, app_fut):
+    def _add_output_deps(self, executor, args, kwargs, app_fut, func):
         logger.debug("Adding output dependencies")
-
-        # well this test is awkward because we maybe now hit the check_staging_inhibited
-        # race? because we add on stage-out decorations during submission rather than at
-        # completion...
 
         if not self.check_staging_inhibited(kwargs):
             outputs = kwargs.get('outputs', [])
@@ -542,6 +538,14 @@ class DataFlowKernel(object):
                         app_fut._outputs.append(DataFuture(stageout_fut, f, tid=app_fut.tid))
                     else:
                         app_fut._outputs.append(DataFuture(app_fut, f, tid=app_fut.tid))
+
+                    # this is a hook for post-task stageout
+                    # note that nothing depends on the output - which is maybe a bug
+                    # in the not-very-tested stageout system?
+                    newfunc = self.data_manager.replace_task_stage_out(f, func, executor)
+                    if newfunc:
+                        func = newfunc
+        return func
 
     def _gather_all_deps(self, args, kwargs):
         """Count the number of unresolved futures on which a task depends.
@@ -702,7 +706,7 @@ class DataFlowKernel(object):
         # no app future at this point to depend on for results, if wanting
         # to submit a task. but maybe a proxy future would do for that,
         # that we create now
-        self._add_output_deps(executor, args, kwargs, app_fu)
+        func = self._add_output_deps(executor, args, kwargs, app_fu, func)
 
         label = kwargs.get('label')
         for kw in ['stdout', 'stderr']:

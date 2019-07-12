@@ -33,13 +33,23 @@ class Staging:
     def can_stage_in(self, file):
         return False
 
+    # like can_stage_in, but for staging out
+    def can_stage_out(self, file):
+        return False
+
     # for a given file, either return a DataFuture to substitute
     # for this file, or return None to perform no substitution
     def stage_in(self, dm, executor, file):
+        return None
+
+    def stage_out(self, dm, executor, file, app_fu):
         return None
 
     # for a file to be staged in, give the provider the chance to
     # replace (eg wrap with staging wrapper) the app function.
     # if this returns None, no substitution happens
     def replace_task(self, dm, executor, file, func):
+        return None
+
+    def replace_task_stage_out(self, dm, executor, file, func):
         return None
