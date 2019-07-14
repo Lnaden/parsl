@@ -3,7 +3,6 @@ import logging
 import tblib.pickling_support
 tblib.pickling_support.install()
 
-from parsl.app.futures import DataFuture
 from parsl.app.app import AppBase
 from parsl.app.errors import wrap_error
 from parsl.dataflow.dflow import DataFlowKernelLoader
@@ -74,8 +73,8 @@ class PythonApp(AppBase):
 
         # logger.debug("App[{}] assigned Task[{}]".format(self.func.__name__,
         #                                                 app_fut.tid))
-        out_futs = [DataFuture(app_fut, o, tid=app_fut.tid)
-                    for o in kwargs.get('outputs', [])]
-        app_fut._outputs = out_futs
+        # out_futs = [DataFuture(app_fut, o, tid=app_fut.tid)
+        #            for o in kwargs.get('outputs', [])]
+        # app_fut._outputs = out_futs
 
         return app_fut

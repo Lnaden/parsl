@@ -501,14 +501,29 @@ class DataFlowKernel(object):
 
         return tuple(newargs), kwargs
 
-    def _add_output_deps(self, executor, args, kwargs, app_fu):
+    def _add_output_deps(self, executor, args, kwargs, app_fut):
         logger.debug("Adding output dependencies")
 
-        if not self.check_staging_inhibited(kwargs):
-            outputs = kwargs.get('outputs', [])
-            for f in outputs:
-                if isinstance(f, File) and f.is_remote():
-                    self.data_manager.stage_out(f, executor, app_fu)
+        # well this test is awkward because we maybe now hit the check_staging_inhibited
+        # race? because we add on stage-out decorations during submission rather than at
+        # completion...
+
+        inhibit = self.check_staging_inhibited(kwargs)
+        outputs = kwargs.get('outputs', [])
+        app_fut._outputs = []
+        for f in outputs:
+            if isinstance(f, File) and f.is_remote() and not inhibit:
+                # with remote stageout, the DataFuture will be complete when
+                # the staging task is complete
+                stageout_fut = self.data_manager.stage_out(f, executor, app_fut)
+                app_fut._outputs.append(DataFuture(stageout_fut, f, tid=app_fut.tid))
+            else:
+                # with local stageout, the DataFuture will be complete when
+                # the core task future is complete
+                # with remote URLs, if staging is inhibited, the app future completing
+                # will signal that stage-out is complete - because that app *is* the
+                # stageout task
+                app_fut._outputs.append(DataFuture(app_fut, f, tid=app_fut.tid))
 
     def _gather_all_deps(self, args, kwargs):
         """Count the number of unresolved futures on which a task depends.
